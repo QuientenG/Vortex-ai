@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A.U.R.A. Local Neural Core</title>
+    <style>
+        :root {
+            --primary: #00ffaa;
+            --bg: #0a0c0a;
+            --panel: #121812;
+            --text: #e0e0e0;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        #chat-container {
+            width: 90%;
+            max-width: 800px;
+            background: var(--panel);
+            border: 1px solid #223322;
+            border-radius: 12px;
+            box-shadow: 0 0 20px rgba(0, 255, 170, 0.1);
+            display: flex;
+            flex-direction: column;
+            height: 85vh;
+            overflow: hidden;
+            position: relative;
+        }
+        #header {
+            padding: 20px;
+            background: rgba(0, 255, 170, 0.05);
+            border-bottom: 1px solid #223322;
+            text-align: center;
+            font-weight: bold;
+            letter-spacing: 2px;
+            color: var(--primary);
+            text-shadow: 0 0 5px var(--primary);
+        }
+        #chat-history {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .message {
+            padding: 12px 18px;
+            border-radius: 8px;
+            max-width: 80%;
+            line-height: 1.5;
+        }
+        .user-msg {
+            background: #1e281e;
+            align-self: flex-end;
+            border-bottom-right-radius: 0;
+        }
+        .ai-msg {
+            background: rgba(0, 255, 170, 0.1);
+            border: 1px solid rgba(0, 255, 170, 0.3);
+            align-self: flex-start;
+            border-bottom-left-radius: 0;
+        }
+        #controls {
+            padding: 20px;
+            border-top: 1px solid #223322;
+            display: flex;
+            gap: 10px;
+            background: var(--panel);
+            opacity: 0.3; /* Dimmed until loaded */
+            pointer-events: none; /* Disabled until loaded */
+            transition: opacity 0.5s;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            background: #182018;
+            border: 1px solid #334433;
+            color: white;
+            border-radius: 6px;
+            outline: none;
+        }
+        input[type="text"]:focus {
+            border-color: var(--primary);
+        }
+        button {
+            padding: 12px 20px;
+            background: transparent;
+            color: var(--primary);
+            border: 1px solid var(--primary);
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        button:hover {
+            background: var(--primary);
+            color: var(--bg);
+        }
+        
+        /* Loading Overlay Styles */
+        #init-overlay {
+            position: absolute;
+            top: 60px; left: 0; right: 0; bottom: 80px;
+            background: rgba(10, 12, 10, 0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+        #progress-text {
+            margin-top: 15px;
+            font-size: 0.9em;
+            color: #88aa88;
+            text-align: center;
+            max-width: 80%;
+        }
+        .status-bar { font-size: 0.8em; color: #88aa88; text-align: center; padding: 5px; }
+    </style>
+</head>
+<body>
+
+    <div id="chat-container">
+        <div id="header">A.U.R.A. LOCAL NEURAL CORE</div>
+        
+        <div id="init-overlay">
+            <button id="init-btn" style="font-size: 1.2em; padding: 15px 30px;">⚡ Boot Local AI Engine</button>
+            <div id="progress-text">Requires Chrome/Edge.<br>Will download ~800MB into browser cache on first run.</div>
+        </div>
+
+        <div id="chat-history"></div>
+        <div class="status-bar" id="status-text">System Offline.</div>
+        
+        <div id="controls">
+            <button id="mic-btn">🎤 Listen</button>
+            <input type="text" id="user-input" placeholder="Type a message or use the mic...">
+            <button id="send-btn">Send</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as webllm from "https://esm.run/@mlc-ai/web-llm";
+
+        const chatHistory = document.getElementById('chat-history');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const micBtn = document.getElementById('mic-btn');
+        const statusText = document.getElementById('status-text');
+        const initBtn = document.getElementById('init-btn');
+        const progressText = document.getElementById('progress-text');
+        const initOverlay = document.getElementById('init-overlay');
+        const controls = document.getElementById('controls');
+
+        // The AI Engine Variable
+        let engine;
+        let memory = [];
+        
+        // Personality
+        const systemPrompt = "You are A.U.R.A. (Advanced User Response Anomaly). You are a highly intelligent, precise, and witty AI assistant running entirely on the user's local hardware. Keep your responses brief, sharp, and helpful. Do not use asterisks for actions.";
+
+        // --- 1. INITIALIZE THE LOCAL AI ---
+        initBtn.addEventListener('click', async () => {
+            initBtn.disabled = true;
+            initBtn.innerText = "Initializing...";
+            
+            try {
+                // We are using a 1-Billion parameter Llama 3.2 model. 
+                // It is incredibly smart for its tiny size and runs great in browsers.
+                const selectedModel = "Llama-3.2-1B-Instruct-q4f16_1-MLC";
+                
+                // This callback updates the text so you can see the download progress
+                const initProgressCallback = (progress) => {
+                    progressText.innerText = progress.text;
+                };
+
+                engine = await webllm.CreateMLCEngine(selectedModel, {
+                    initProgressCallback: initProgressCallback
+                });
+
+                // When finished loading:
+                initOverlay.style.display = "none";
+                statusText.innerText = "A.U.R.A. Online. Processing locally via WebGPU.";
+                controls.style.opacity = "1";
+                controls.style.pointerEvents = "auto";
+                speak("Aura neural core online. All systems nominal.");
+
+            } catch (error) {
+                console.error(error);
+                progressText.innerText = "ERROR: " + error.message + "\n\nAre you using a supported browser (Chrome/Edge)?";
+                initBtn.innerText = "Boot Failed";
+            }
+        });
+
+        // --- 2. MICROPHONE SETUP ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition;
+        
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+
+            recognition.onstart = () => {
+                statusText.innerText = "Listening...";
+                micBtn.style.background = "#00ffaa";
+                micBtn.style.color = "#0a0c0a";
+            };
+
+            recognition.onresult = (event) => {
+                userInput.value = event.results[0][0].transcript;
+                sendMessage();
+            };
+
+            recognition.onerror = (event) => {
+                statusText.innerText = "Mic error: " + event.error;
+                resetMicButton();
+            };
+
+            recognition.onend = resetMicButton;
+        } else {
+            micBtn.style.display = "none";
+        }
+
+        function resetMicButton() {
+            micBtn.style.background = "transparent";
+            micBtn.style.color = "#00ffaa";
+            if(engine) statusText.innerText = "Awaiting input...";
+        }
+
+        micBtn.addEventListener('click', () => { if (recognition) recognition.start(); });
+
+        // --- 3. SPEECH SYNTHESIS ---
+        function speak(text) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.pitch = 1.1; 
+            utterance.rate = 1.05;
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // --- 4. CHAT LOGIC ---
+        function appendMessage(text, sender) {
+            const div = document.createElement('div');
+            div.className = `message ${sender === 'user' ? 'user-msg' : 'ai-msg'}`;
+            div.innerText = text;
+            chatHistory.appendChild(div);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        async function fetchAIResponse(userText) {
+            if (!engine) return "System Offline.";
+
+            memory.push({ role: 'user', content: userText });
+            statusText.innerText = "A.U.R.A. is calculating locally...";
+
+            try {
+                // Send the chat history to the local model
+                const reply = await engine.chat.completions.create({
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        ...memory
+                    ]
+                });
+
+                const aiText = reply.choices[0].message.content;
+                memory.push({ role: 'assistant', content: aiText });
+                
+                return aiText;
+
+            } catch (error) {
+                console.error(error);
+                memory.pop(); // Remove the failed message
+                return `Processing Error: ${error.message}`;
+            } finally {
+                statusText.innerText = "Awaiting input...";
+            }
+        }
+
+        async function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text) return;
+
+            appendMessage(text, 'user');
+            userInput.value = '';
+
+            const aiResponse = await fetchAIResponse(text);
+            appendMessage(aiResponse, 'ai');
+            speak(aiResponse);
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
+    </script>
+</body>
+</html>
